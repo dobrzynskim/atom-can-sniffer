@@ -464,8 +464,34 @@ void clearOneRxIfBit(uint8_t rxnifMask) {
 //
 // 0x90 = READ RX BUFFER, RXB0, od SIDH. 0x94 = to samo dla RXB1. (0x92/0x96
 // pominiete - zaczynalyby od DATA, tu chcemy caly naglowek wlacznie z ID.)
+// (2026-09-04, wieczorem) Sekcja krytyczna wokol calej transakcji SPI
+// ponizej - podejrzenie po tym, ze invalid_dlc/rx0_ovr zostaje na
+// podobnym poziomie (~5-9x) NIEZALEZNIE od okablowania (bezposrednio,
+// przez konwerter, przez dzielnik rezystorowy 10k/20k), a REC/TEC z
+// samego MCP2515 caly czas 0 - czyli chip twierdzi, ze odebral z szyny
+// poprawna ramke (zero bledow na poziomie protokolu CAN), a korupcja
+// pojawia sie dopiero PO tym, w drodze przez SPI do ESP32. To wskazuje na
+// software/timing, nie elektryke. readMessageFast() robi 13 osobnych
+// SPI.transfer() trzymajac CS nisko przez cala sekwencje - bez wylaczenia
+// przerwan, tick FreeRTOSa (domyslnie ~1ms) moze wywlaszczyc canTaskFn W
+// TRAKCIE tej sekwencji, zostawiajac CS nisko na czas przelaczenia
+// (potencjalnie milisekundy) - MCP2515 przez ten czas moze np. zaczac
+// nadpisywac bufor kolejna ramka albo transakcja SPI zostaje rozjechana
+// miedzy dwa niepowiazane odczyty. portENTER_CRITICAL/portEXIT_CRITICAL
+// (spinlock + wylaczenie przerwan na tym rdzeniu) gwarantuje, ze te 13
+// transferow wykona sie jako jedna, nieprzerwana calosc. Trzymane
+// mozliwie krotko (tylko ta petla, nie SPI.beginTransaction/
+// endTransaction) - SPI.transfer() na ESP32 dla pojedynczych bajtow jest
+// synchroniczne/pollingowe (nie DMA/przerwaniowe), wiec bezpieczne w
+// sekcji krytycznej, nie zablokuje sie czekajac na przerwanie ktore samo
+// wlasnie wylaczylismy. NIEPRZETESTOWANE jeszcze - nastepny krok to
+// porownanie invalid_dlc/rx z dzisiejszym baseline (~5-9x) na tym samym
+// okablowaniu (dzielnik 10k/20k) po tej zmianie.
+static portMUX_TYPE spiCriticalMux = portMUX_INITIALIZER_UNLOCKED;
+
 MCP2515::ERROR readMessageFast(bool rxb0, struct can_frame *frame) {
   SPI.beginTransaction(mcpRawSpi);
+  portENTER_CRITICAL(&spiCriticalMux);
   digitalWrite(PIN_CS, LOW);
   SPI.transfer(rxb0 ? 0x90 : 0x94);
   const uint8_t sidh = SPI.transfer(0x00);
@@ -483,6 +509,7 @@ MCP2515::ERROR readMessageFast(bool rxb0, struct can_frame *frame) {
     frame->data[i] = SPI.transfer(0x00);
   }
   digitalWrite(PIN_CS, HIGH); // <- RXnIF kasuje sie TU, automatycznie (datasheet 12.4)
+  portEXIT_CRITICAL(&spiCriticalMux);
   SPI.endTransaction();
 
   uint32_t id = (static_cast<uint32_t>(sidh) << 3) + (sidl >> 5);
