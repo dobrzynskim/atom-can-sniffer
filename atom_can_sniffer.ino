@@ -29,15 +29,14 @@
 // GPIO i protokol SPI ponizej sie NIE zmienily - konwerter jest czysto
 // elektryczny, przezroczysty dla firmware'u.
 //
-// NIEPOTWIERDZONE RYZYKO do obserwacji po tej zmianie: tanie
+// POTWIERDZONE (pierwsze wgranie z konwerterem, 2026-09-04, @ 5MHz): tanie
 // auto-wykrywajace konwertery tego typu (rezystory podciagajace + tranzystor
-// per kanal) maja ograniczona przepustowosc - wiele modeli jest w praktyce
-// pewnych tylko do ~1 MHz, czasem mniej, mimo ze sa reklamowane jako
-// uniwersalne. MCP_SPI_CLOCK ponizej to 5 MHz - jesli po tej zmianie
-// invalid_dlc/rx0_ovr w # STATS nie spadnie (albo wzrosnie), pierwsze do
-// sprawdzenia to obnizenie MCP_SPI_CLOCK (np. do 1000000) przed szukaniem
-// dalej - CAN-B i tak dziala tylko 83.333 kb/s, wiec zapas na wolniejszy
-// SPI jest ogromny.
+// per kanal) faktycznie nie trzymaja 5 MHz - mcp2515.reset() losowo failuje,
+// a # SELFTEST loopback (ramka wewnatrz chipu, zero ruchu na szynie auta)
+// tez FAIL. MCP_SPI_CLOCK obnizony do 1 MHz w tym samym wgraniu - patrz
+// obszerny komentarz przy MCP_SPI_CLOCK nizej dla pelnej historii,
+// WLACZAJAC sprzeczny wynik z 2026-09-02 (inny eksperyment, bez
+// konwertera) ktory trzeba bedzie odroznic od tego przy nastepnej jezdzie.
 //
 // WERSJA 2: sterowanie MCP2515 przez bibioteke autowp/arduino-mcp2515
 // (https://github.com/autowp/arduino-mcp2515) zamiast wlasnego kodu na
@@ -145,7 +144,33 @@ const uint8_t REG_CANINTF = 0x2C;
 // regresja, nie szum pomiarowy. Ta sama predkosc jest przekazywana do
 // konstruktora MCP2515 ponizej, zeby biblioteka i nasz reczny zapis CNF
 // uzywaly identycznych ustawien magistrali.
-const uint32_t MCP_SPI_CLOCK = 5000000;
+// 2026-09-04, obnizone 5 MHz -> 1 MHz PO DODANIU konwertera poziomow
+// 3,3V<->5V na liniach SPI (patrz komentarz o okablowaniu na gorze pliku).
+// UWAGA na sprzecznosc z historia wyzej: eksperyment z 2026-09-02 (5->2MHz,
+// BEZ konwertera) wypadl gorzej (invalid_dlc/rx ~23x, rx0_ovr/rx ~4x) i
+// wniosek byl "dominuje czas oproznienia RXB0/RXB1, nie integralnosc
+// sygnalu - wolniejszy zegar tylko szkodzi". Ta zmiana nie jest powtorka
+// tamtego eksperymentu - to inny objaw, na innym okablowaniu:
+//   - Pierwsze wgranie z konwerterem @ 5MHz: mcp2515.reset() losowo failuje
+//     (bledy juz na pojedynczych rejestrowych transakcjach init), a kiedy
+//     sie uda - # SELFTEST loopback (patrz runLoopbackSelfTest() nizej)
+//     rowniez FAIL, z sendErr=OK/rxErr=OK ale zla trescia odczytanej ramki.
+//   - Loopback to JEDNA izolowana ramka wewnatrz chipu - zero ruchu na
+//     szynie auta, zero rywalizacji o RXB0/RXB1 (bufor nie moze sie
+//     przepelnic przy jednej ramce). Jego porazka przy 5MHz przez
+//     konwerter wyklucza hipoteze "za wolne oproznianie buforow" jako
+//     wyjasnienie TEGO konkretnego niepowodzenia - to wyglada na realna
+//     degradacje sygnalu SPI (prawdopodobnie zbyt szybki zegar dla tanich
+//     auto-sensingowych konwerterow, patrz komentarz na gorze pliku).
+// Test do zrobienia po tej zmianie: (1) # SELFTEST loopback zaraz po
+// starcie - jesli teraz wyjdzie OK, to potwierdza teorie integralnosci
+// sygnalu; (2) realna jazda - jesli invalid_dlc/rx0_ovr wroca w okolice
+// starego baseline sprzed konwertera (~3,5x/~2x wg # STATS z 2026-09-04)
+// albo nizej, sukces; jesli zamiast tego eksploduje jak w 2026-09-02 (~23x/
+// ~4x), to znaczy ze na TYM okablowaniu (z konwerterem) rowniez dominuje
+// czas oproznienia buforow, nie integralnosc - i potrzeba szybszego
+// (push-pull, nie auto-sensing) konwertera zamiast dalszego zwalniania.
+const uint32_t MCP_SPI_CLOCK = 1000000;
 SPISettings mcpRawSpi(MCP_SPI_CLOCK, MSBFIRST, SPI_MODE0);
 
 MCP2515 mcp2515(PIN_CS, MCP_SPI_CLOCK);
