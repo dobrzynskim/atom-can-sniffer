@@ -10,8 +10,20 @@
 
 // Zwykly ESP32 (potwierdzone przez esptool: "This chip is ESP32, not
 // ESP32-S3", NIE AtomS3/ESP32-S3) -> MCP2515, pasywny (listen-only) logger
-// CAN 83.333 kb/s do pliku na LittleFS. Zasilanie modulu MCP2515 z 3.3V
-// (nie 5V) - dzieki temu SPI idzie wprost, bez konwertera poziomow.
+// CAN 83.333 kb/s do pliku na LittleFS.
+//
+// UWAGA (2026-09-04, poprzedni wpis tutaj byl bledny) - modul MCP2515 jest
+// zasilany 5V, a linie SPI (MISO/MOSI/SCK/CS) sa wpiete WPROST w ESP32
+// (logika 3,3V), BEZ konwertera poziomow. MISO wychodzace z chipu przy 5V
+// przekracza dopuszczalne napiecie wejsciowe GPIO ESP32 (~3,3-3,6V max) -
+// realny, jeszcze niezbadany kandydat na (wspol)przyczyne przewlekajacej
+// sie korupcji odczytu SPI (patrz # STATS invalid_dlc/rx0_ovr w historii
+// nizej i readMessageFast() - ta poprawka adresuje inny, potwierdzony
+// software'owy problem, ale nie wyklucza rownoczesnego problemu
+// elektrycznego jak ten). Docelowo do sprawdzenia: albo zasilic modul z
+// 3,3V (jesli plytka to toleruje - zalezy od modelu/regulatora na niej),
+// albo dodac konwerter poziomow (badz chociaz dzielnik napiecia/rezystor
+// szeregowy) na MISO.
 //
 // WERSJA 2: sterowanie MCP2515 przez bibioteke autowp/arduino-mcp2515
 // (https://github.com/autowp/arduino-mcp2515) zamiast wlasnego kodu na
