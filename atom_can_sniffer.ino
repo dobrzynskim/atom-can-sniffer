@@ -12,18 +12,32 @@
 // ESP32-S3", NIE AtomS3/ESP32-S3) -> MCP2515, pasywny (listen-only) logger
 // CAN 83.333 kb/s do pliku na LittleFS.
 //
-// UWAGA (2026-09-04, poprzedni wpis tutaj byl bledny) - modul MCP2515 jest
-// zasilany 5V, a linie SPI (MISO/MOSI/SCK/CS) sa wpiete WPROST w ESP32
-// (logika 3,3V), BEZ konwertera poziomow. MISO wychodzace z chipu przy 5V
-// przekracza dopuszczalne napiecie wejsciowe GPIO ESP32 (~3,3-3,6V max) -
-// realny, jeszcze niezbadany kandydat na (wspol)przyczyne przewlekajacej
-// sie korupcji odczytu SPI (patrz # STATS invalid_dlc/rx0_ovr w historii
-// nizej i readMessageFast() - ta poprawka adresuje inny, potwierdzony
-// software'owy problem, ale nie wyklucza rownoczesnego problemu
-// elektrycznego jak ten). Docelowo do sprawdzenia: albo zasilic modul z
-// 3,3V (jesli plytka to toleruje - zalezy od modelu/regulatora na niej),
-// albo dodac konwerter poziomow (badz chociaz dzielnik napiecia/rezystor
-// szeregowy) na MISO.
+// UWAGA (2026-09-04) - modul MCP2515 jest zasilany 5V. Do 2026-09-04 linie
+// SPI (MISO/MOSI/SCK/CS) byly wpiete WPROST w ESP32 (logika 3,3V) BEZ
+// konwertera poziomow - MISO wychodzace z chipu przy 5V przekracza
+// dopuszczalne napiecie wejsciowe GPIO ESP32 (~3,3-3,6V max), realny
+// kandydat na (wspol)przyczyne przewlekajacej sie korupcji odczytu SPI
+// (patrz # STATS invalid_dlc/rx0_ovr w historii nizej i readMessageFast() -
+// ta poprawka adresuje inny, potwierdzony software'owy problem, niezalezny
+// od tego elektrycznego). Od 2026-09-04 (fizyczna zmiana, nie firmware)
+// dodany 8-kanalowy dwukierunkowy konwerter poziomow (VCCA/GND/A0-A7,
+// VCCB/GND/B0-B7 - typowy tani modul, prawdopodobnie na bazie BSS138 z
+// auto-wykrywaniem kierunku): VCCA -> 3,3V ESP32, VCCB -> te same 5V co
+// VCC modulu MCP2515, GND wspolny (ESP32 + MCP2515 + oba GND konwertera +
+// masa auta). 4 z 8 kanalow uzyte na CS/SCK/SO/SI (patrz mapa pinow
+// nizej), INT (nieuzywany) nie przechodzi przez konwerter w ogole. Piny
+// GPIO i protokol SPI ponizej sie NIE zmienily - konwerter jest czysto
+// elektryczny, przezroczysty dla firmware'u.
+//
+// NIEPOTWIERDZONE RYZYKO do obserwacji po tej zmianie: tanie
+// auto-wykrywajace konwertery tego typu (rezystory podciagajace + tranzystor
+// per kanal) maja ograniczona przepustowosc - wiele modeli jest w praktyce
+// pewnych tylko do ~1 MHz, czasem mniej, mimo ze sa reklamowane jako
+// uniwersalne. MCP_SPI_CLOCK ponizej to 5 MHz - jesli po tej zmianie
+// invalid_dlc/rx0_ovr w # STATS nie spadnie (albo wzrosnie), pierwsze do
+// sprawdzenia to obnizenie MCP_SPI_CLOCK (np. do 1000000) przed szukaniem
+// dalej - CAN-B i tak dziala tylko 83.333 kb/s, wiec zapas na wolniejszy
+// SPI jest ogromny.
 //
 // WERSJA 2: sterowanie MCP2515 przez bibioteke autowp/arduino-mcp2515
 // (https://github.com/autowp/arduino-mcp2515) zamiast wlasnego kodu na
