@@ -1079,7 +1079,17 @@ void logFrame(const struct can_frame &frame) {
   enqueueLine(line);
 }
 
-void drainMcp2515() {
+// 2026-09-05: zwraca bool (przetworzono >=1 ramke), zeby canTaskFn mogl
+// wywolywac TYLKO ta funkcje zamiast najpierw mcp2515.checkReceive() (osobna
+// transakcja SPI, sama w sobie tylko wola getStatus() i sprawdza te same
+// bity co ponizej) a dopiero potem drainMcp2515(). To byl duplikat - kazdy
+// "pusty" poll robil DWIE transakcje status (checkReceive() + pierwsza
+// iteracja tej petli), a kazdy "zajety" poll co najmniej TRZY (checkReceive()
+// + do dwoch getStatus() ponizej). Usuniecie zewnetrznego checkReceive()
+// oszczedza jedna transakcje SPI na kazda iteracje petli - w duchu tej samej
+// zmiany co przy vTaskDelay(1)->taskYIELD() wyzej: mniej czasu miedzy
+// pojawieniem sie ramki a jej odczytem.
+bool drainMcp2515() {
   // MCP2515 ma tylko dwa bufory RX (RXB0, RXB1) - max dwie ramki na wejscie.
   //
   // ZMIANA (2026-09-02): jawnie ustalamy TU, ktory bufor (RXB0 czy RXB1)
@@ -1093,6 +1103,7 @@ void drainMcp2515() {
   // (2026-09-04) rxnifMask (ktory bit CANINTF nalezy skasowac) juz tu nie
   // trzeba liczyc - readMessageFast() kasuje RXnIF sam, jako czesc tej
   // samej transakcji SPI co odczyt ramki, patrz jej komentarz.
+  bool processedAny = false;
   for (uint8_t i = 0; i < 2; ++i) {
     uint8_t stat = mcp2515.getStatus();
     MCP2515::RXBn rxbn;
@@ -1103,6 +1114,7 @@ void drainMcp2515() {
     } else {
       break;
     }
+    processedAny = true;
 
     struct can_frame frame;
     // (2026-09-04) readMessageFast() zamiast mcp2515.readMessage(rxbn, &frame)
@@ -1162,6 +1174,7 @@ void drainMcp2515() {
       ++invalidDlc;
     }
   }
+  return processedAny;
 }
 
 void handleErrors() {
@@ -1341,8 +1354,7 @@ void logResetReason() {
 void canTaskFn(void *pvParameters) {
   uint16_t emptyPolls = 0;
   for (;;) {
-    if (mcp2515.checkReceive()) {
-      drainMcp2515();
+    if (drainMcp2515()) {
       emptyPolls = 0;
     } else if (++emptyPolls >= 50) {
       vTaskDelay(1);
