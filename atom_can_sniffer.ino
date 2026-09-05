@@ -170,7 +170,29 @@ const uint8_t REG_CANINTF = 0x2C;
 // ~4x), to znaczy ze na TYM okablowaniu (z konwerterem) rowniez dominuje
 // czas oproznienia buforow, nie integralnosc - i potrzeba szybszego
 // (push-pull, nie auto-sensing) konwertera zamiast dalszego zwalniania.
-const uint32_t MCP_SPI_CLOCK = 1000000;
+// 2026-09-05: podniesione 1 MHz -> 2 MHz. Powod: cztery realne jazdy pod
+// rzad (dzielnik 10k/20k na MISO + CS/SCK/MOSI bezposrednio, potem to samo
+// + krytyczna sekcja w readMessageFast(), potem CS/SCK/MOSI przez kolejne
+// kanaly 8-kanalowego konwertera zamiast bezposrednio) dały STATYSTYCZNIE
+// IDENTYCZNY wynik: invalid_dlc/rx ~4,2-4,8x, rx0_ovr/rx ~2,7-3,1x, REC/TEC
+// caly czas 0. Cztery rozne zmiany elektryczne/software'owe, zero ruchu w
+// wyniku - jedyna zmienna, ktorej NIKT nie ruszal od 2026-09-04 (kiedy
+// obnizono z 5 MHz z powodu problemow AKURAT tego jednego auto-sensing
+// konwertera), to zegar SPI. Przy 1 MHz jedna ramka (14 bajtow: instrukcja+
+// naglowek+dane) to ~112us samego przesylu + narzut digitalWrite()/wywolan
+// funkcji, rzedu 150-300us - a bufor RXB0/RXB1 (tylko 2 sztuki) moze sie
+// zapelnic zanim petla canTaskFn zdazy go opróznic przy realnym ruchu na
+// busie. To lepiej tlumaczy plaski wynik u wszystkich czterech testow niz
+// dowolna z badanych dotad hipotez elektrycznych/timing-race - one wszystkie
+// zakladaly cos zwiazanego z konkretna linia/sekcja kodu, a nie z tym, jak
+// szybko w ogole caly odczyt sie wykonuje. Test do zrobienia: realna jazda,
+// invalid_dlc/rx i rx0_ovr/rx wzgledem dzisiejszego ~4,4x/~3,0x - jesli
+// spadnie, potwierdza teorie predkosci odczytu; jesli mcp2515.reset()/
+// SELFTEST zaczna failowac jak przy 5MHz na starym konwerterze, to znaczy ze
+// ktoras z linii (najpewniej ta czesc CS/SCK/MOSI, ktora nadal idzie przez
+// auto-sensing konwerter) nie trzyma wyzszego zegara - wtedy cofnij do
+// 1 MHz i szukaj dalej gdzie indziej, nie w zegarze.
+const uint32_t MCP_SPI_CLOCK = 2000000;
 SPISettings mcpRawSpi(MCP_SPI_CLOCK, MSBFIRST, SPI_MODE0);
 
 MCP2515 mcp2515(PIN_CS, MCP_SPI_CLOCK);
