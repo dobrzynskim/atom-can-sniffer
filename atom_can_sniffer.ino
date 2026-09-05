@@ -204,7 +204,20 @@ const uint8_t REG_CANINTF = 0x2C;
 // powtorzy sie teraz, to potwierdzi ze auto-sensing konwerter (nie zegar per
 // se) jest twardym ograniczeniem predkosci, i trzeba cofnac do 2MHz albo
 // zamienic ten konwerter na cos push-pull.
-const uint32_t MCP_SPI_CLOCK = 5000000;
+// 2026-09-05, konkluzja calej rundy testow zegara: realna jazda na 5MHz dala
+// invalid_dlc/rx ~4,4-5,4x, rx0_ovr/rx ~2,7-2,8x - DOKLADNIE ten sam pulap co
+// 1MHz i 2MHz. Trzy predkosci, 5-krotny zakres (1->5MHz), reset()/SELFTEST
+// przeszly na kazdej z nich (auto-sensing konwerter na CS/SCK/MOSI jednak
+// trzyma nawet 5MHz na tym okablowaniu) - zero zmiany w invalid_dlc/rx0_ovr.
+// To ZAMYKA teorie "za wolny zegar SPI = za wolne opróznianie buforow" -
+// gdyby to byla prawdziwa przyczyna, 5x szybszy odczyt powinien byc widoczny
+// w statystykach, a nie jest. Cofniete do 1 MHz (najlepszy/najbezpieczniejszy
+// dotychczasowy wynik, zero ryzyka marginalnosci konwertera) - podnoszenie
+// zegara dalej nie ma uzasadnienia, szukac przyczyny invalid_dlc trzeba gdzie
+// indziej niz w SPI (np. realne obciazenie magistrali/tylko 2 bufory RX
+// odpytywane programowo zamiast przez pin INT - patrz rozmowa z uzytkownikiem
+// 2026-09-05).
+const uint32_t MCP_SPI_CLOCK = 1000000;
 SPISettings mcpRawSpi(MCP_SPI_CLOCK, MSBFIRST, SPI_MODE0);
 
 MCP2515 mcp2515(PIN_CS, MCP_SPI_CLOCK);
