@@ -234,6 +234,7 @@ const uint32_t LFS_SPACE_CHECK_INTERVAL = 200; // co ile linii sprawdzac LittleF
 
 uint32_t rxCount = 0;
 uint32_t invalidDlc = 0;
+uint32_t invalidDlcSampleCounter = 0; // 2026-09-05 - patrz probkowanie "BADDLC" w drainMcp2515()
 uint32_t rx0Overflow = 0;
 uint32_t rx1Overflow = 0;
 uint32_t lastFlush = 0;
@@ -1172,6 +1173,30 @@ bool drainMcp2515() {
       // (115200 bd) blokuje petle na kilka ms, co samo nakreca kolejne
       // przepelnienia RXB0. Licznik i tak trafia do # STATS co 5s.
       ++invalidDlc;
+
+      // 2026-09-05: probka co 20-ta uszkodzona ramka - zeby NA ZYWO zobaczyc
+      // jak faktycznie wyglada ta korupcja po dzisiejszych fixach (elektryka,
+      // zegar, timing petli - zadne nie ruszylo invalid_dlc/rx), zamiast
+      // dalej zgadywac. Przez enqueueLine() (ta sama nieblokujaca kolejka co
+      // logFrame()) - bezpieczne w hot pathie, nie ten sam problem co
+      // bezposredni Serial.println() wspomniany wyzej. frame.data[] ma tu
+      // wypelnione tylko min(dlcMasked,8) bajtow (patrz readMessageFast) -
+      // dlatego dump zawsze max 8, niezaleznie od (uszkodzonego) DLC>8.
+      if ((++invalidDlcSampleCounter % 20) == 0) {
+        char badPayload[25];
+        size_t pos = 0;
+        for (uint8_t i = 0; i < 8; ++i) {
+          int written = snprintf(badPayload + pos, sizeof(badPayload) - pos, i == 0 ? "%02X" : " %02X", frame.data[i]);
+          if (written < 0 || static_cast<size_t>(written) >= sizeof(badPayload) - pos) {
+            break;
+          }
+          pos += static_cast<size_t>(written);
+        }
+        char badLine[100];
+        snprintf(badLine, sizeof(badLine), "%lu BADDLC ID=0x%lX RAW_DLC=%u DATA=%s\n",
+          static_cast<unsigned long>(micros()), static_cast<unsigned long>(frame.can_id), frame.can_dlc, badPayload);
+        enqueueLine(badLine);
+      }
     }
   }
   return processedAny;
