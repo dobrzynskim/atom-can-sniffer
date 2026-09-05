@@ -1117,10 +1117,27 @@ bool drainMcp2515() {
     }
     processedAny = true;
 
-    struct can_frame frame;
-    // (2026-09-04) readMessageFast() zamiast mcp2515.readMessage(rxbn, &frame)
-    // z biblioteki - patrz obszerny komentarz przy readMessageFast() wyzej.
-    MCP2515::ERROR err = readMessageFast(rxbn == MCP2515::RXB0, &frame);
+    // 2026-09-05: TYMCZASOWO z powrotem na oryginalna, nieprzerobiona
+    // biblioteke (mcp2515.readMessage()) zamiast wlasnego readMessageFast() -
+    // czysty test kontrolny. Caly dzien elektryka/zegar/timing petli nie
+    // ruszyly invalid_dlc/rx, a probki BADDLC pokazuja powtarzalny,
+    // "zamrozony" wzorzec bajtow pod roznymi ID - podejrzenie, ze to moze
+    // byc blad w NASZYM recznym readMessageFast() (np. zle policzone
+    // przesuniecie/maska), a nie w samym chipie/magistrali. Oryginalna
+    // biblioteka to niezalezna, od dawna uzywana implementacja - jesli TEN
+    // SAM wzorzec pojawi sie i tutaj, to mocno wskazuje na chip/magistrale,
+    // nie na nasz kod. Jesli zniknie - mamy bug we wlasnym readMessageFast().
+    // frame zerowany jawnie, bo biblioteka na ERROR_FAIL (dlc>8) wychodzi
+    // WCZESNIEJ niz zapisze cokolwiek do frame (patrz mcp2515.cpp:665-667) -
+    // bez tego BADDLC pokazywaloby smieci ze stosu, nie realny brak danych.
+    // RXnIF na tej sciezce trzeba skasowac recznie (biblioteka tego nie
+    // robi przy ERROR_FAIL - dokladnie ten sam problem co POPRAWKA
+    // 2026-09-02 opisana nizej, teraz wraca razem z powrotem do biblioteki).
+    struct can_frame frame = {};
+    MCP2515::ERROR err = mcp2515.readMessage(rxbn, &frame);
+    if (err != MCP2515::ERROR_OK) {
+      clearOneRxIfBit(rxbn == MCP2515::RXB0 ? 0x01 : 0x02);
+    }
 
     if (err == MCP2515::ERROR_OK) {
       // FILTR EXT (2026-09-02, dodatkowy punkt do planu zmian): na tej
