@@ -192,7 +192,19 @@ const uint8_t REG_CANINTF = 0x2C;
 // ktoras z linii (najpewniej ta czesc CS/SCK/MOSI, ktora nadal idzie przez
 // auto-sensing konwerter) nie trzyma wyzszego zegara - wtedy cofnij do
 // 1 MHz i szukaj dalej gdzie indziej, nie w zegarze.
-const uint32_t MCP_SPI_CLOCK = 2000000;
+// 2026-09-05, kontynuacja: realna jazda na 2MHz dala invalid_dlc/rx ~4,7-5,1x,
+// rx0_ovr/rx ~2,8-2,9x - NIE lepiej niz 1MHz (~4,4-4,6x/~3,0x), jesli juz to
+// lekko gorzej. To OSLABIA teorie "za wolny zegar = za wolne opróznianie
+// buforow" z komentarza wyzej - gdyby to byla prawda, szybszy zegar powinien
+// pomoc, a nie zaszkodzic. Mimo to user chce sprawdzic 5MHz (skok wiekszy niz
+// 1->2, moze efekt jest nieliniowy albo 2MHz to za malo, zeby cokolwiek
+// zmienic). RYZYKO udokumentowane w historii wyzej: przy 5MHz przez ten sam
+// tani auto-sensing konwerter (CS/SCK/MOSI nadal przez niego ida) mcp2515.reset()
+// losowo failowal, a # SELFTEST loopback tez failowal - jesli to samo
+// powtorzy sie teraz, to potwierdzi ze auto-sensing konwerter (nie zegar per
+// se) jest twardym ograniczeniem predkosci, i trzeba cofnac do 2MHz albo
+// zamienic ten konwerter na cos push-pull.
+const uint32_t MCP_SPI_CLOCK = 5000000;
 SPISettings mcpRawSpi(MCP_SPI_CLOCK, MSBFIRST, SPI_MODE0);
 
 MCP2515 mcp2515(PIN_CS, MCP_SPI_CLOCK);
