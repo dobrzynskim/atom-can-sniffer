@@ -1313,12 +1313,42 @@ void logResetReason() {
 // oddaje CPU (i karmi watchdog zadania bezczynnego na tym rdzeniu, patrz
 // TASK_WDT w logResetReason()) zamiast busy-loopa; gdy dane sa, kolejne
 // iteracje leca bez zadnego opoznienia.
+//
+// 2026-09-05: ZNALEZISKO - to prawdopodobnie prawdziwe wytlumaczenie
+// invalid_dlc/rx0_ovr, lepsze niz cokolwiek testowane dzis (SPI 1/2/5MHz,
+// dzielnik/konwerter na roznych liniach) - wszystkie te testy dały
+// STATYSTYCZNIE IDENTYCZNY wynik, bo zadna z nich nie ruszala TEGO. Kazdy
+// pojedynczy "pusty" poll (checkReceive()==false) kosztuje vTaskDelay(1) =
+// PELNY tick FreeRTOSa (domyslnie 1ms, czasem do ~2ms przy trafieniu na
+// granice ticka) - a jedna ramka CAN na 83,333 kb/s trwa ~1,5-2ms. Czyli
+// KAZDY pojedynczy pusty poll moze zdazyc przespac cala kolejna ramke (albo
+// dwie), ktora w tym czasie zapelnia RXB0/RXB1 - stad rx0_ovr i najpewniej
+// czesc invalid_dlc (spostrzezenie tez zbiega sie z tym, ze REC/TEC=0
+// zawsze, czyli MCP2515 samo w sobie odbiera ramki z szyny bezblednie -
+// zgubione/uszkodzone dane to kwestia tego, KIEDY ESP32 zdazy je odebrac
+// przez SPI, nie integralnosci samego SPI). To NIE zalezy od zegara SPI ani
+// okablowania - std stad plaski wynik we wszystkich dzisiejszych testach.
+//
+// Fix: zamiast bezwarunkowego vTaskDelay(1) na kazdym pustym pollu, licznik
+// pustych pollow pod rzad - pierwsze 49 to tani taskYIELD() (oddaje
+// procesor jesli jest cos gotowe o rownym/wyzszym priorytecie, ale NIE
+// wymusza pelnego ticka jak vTaskDelay - w praktyce trwa mikrosekundy, nie
+// milisekundy, bo can_task jest jedynym zadaniem o priorytecie 5 na tym
+// rdzeniu i od razu wraca do biegu), co 50-ty pusty poll robi realny
+// vTaskDelay(1), zeby zadanie bezczynne na tym rdzeniu (i jego watchdog)
+// nadal dostawalo CPU regularnie, tak jak wczesniej - tylko rzadziej.
+// NIEPRZETESTOWANE na realnej jezdzie.
 void canTaskFn(void *pvParameters) {
+  uint16_t emptyPolls = 0;
   for (;;) {
     if (mcp2515.checkReceive()) {
       drainMcp2515();
-    } else {
+      emptyPolls = 0;
+    } else if (++emptyPolls >= 50) {
       vTaskDelay(1);
+      emptyPolls = 0;
+    } else {
+      taskYIELD();
     }
     handleErrors();
     printStats(); // ma wlasny wewnetrzny rate-limit (co 5s) - tanie wywolanie co iteracje
